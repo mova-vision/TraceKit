@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tracekit"
+version = "0.1.0"
+description = "Infrastructure between your vision model and application logic"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "TraceKit contributors" }]
+keywords = ["computer-vision", "tracking", "detection", "media"]
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+opencv = ["opencv-python>=4.8"]
+yolo = ["ultralytics>=8.0"]
+browser = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "python-multipart>=0.0.9", "opencv-python>=4.8"]
+dev = ["pytest>=7.4"]
+all = [
+    "opencv-python>=4.8",
+    "ultralytics>=8.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
+    "pytest>=7.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/tracekit/tracekit"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

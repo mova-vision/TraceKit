@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TraceKit browser demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Segoe UI", system-ui, sans-serif;
+    }
+    body {
+      margin: 0;
+      background: #111;
+      color: #eee;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+    }
+    .wrap {
+      width: min(960px, 96vw);
+    }
+    h1 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin: 0 0 0.75rem;
+    }
+    .stage {
+      position: relative;
+      background: #000;
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+    }
+    video, canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+    }
+    canvas {
+      pointer-events: none;
+    }
+    p {
+      margin: 0.75rem 0 0;
+      opacity: 0.75;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>TraceKit — camera → detect → track</h1>
+    <div class="stage">
+      <video id="cam" playsinline autoplay muted></video>
+      <canvas id="overlay"></canvas>
+    </div>
+    <p id="status">Starting camera…</p>
+  </div>
+  <script>
+    const video = document.getElementById("cam");
+    const canvas = document.getElementById("overlay");
+    const ctx = canvas.getContext("2d");
+    const status = document.getElementById("status");
+    const sendCanvas = document.createElement("canvas");
+    const sendCtx = sendCanvas.getContext("2d");
+
+    let busy = false;
+    let lastTracks = [];
+    let sendWidth = 1;
+    let sendHeight = 1;
+
+    async function start() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+        audio: false,
+      });
+      video.srcObject = stream;
+      await video.play();
+      status.textContent = "Streaming — move an object in view";
+      requestAnimationFrame(loop);
+    }
+
+    function fitCanvas() {
+      const w = video.clientWidth;
+      const h = video.clientHeight;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+    }
+
+    function drawTracks(tracks) {
+      fitCanvas();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Tracks are in the downscaled JPEG coordinate space sent to the server.
+      const scaleX = canvas.width / sendWidth;
+      const scaleY = canvas.height / sendHeight;
+
+      for (const track of tracks) {
+        const [cx, cy] = track.position;
+        const x = cx * scaleX;
+        const y = cy * scaleY;
+
+        // Application drawing only — TraceKit just provides geometry/state.
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.strokeStyle = "#7CFC00";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        if (track.bbox) {
+          const [x1, y1, x2, y2] = track.bbox;
+          const bx = x1 * scaleX;
+          const by = y1 * scaleY;
+          ctx.strokeRect(bx, by, (x2 - x1) * scaleX, (y2 - y1) * scaleY);
+
+          // Label pill anchored above the box — always readable
+          const text = `${track.id} ${track.label || ""}`;
+          ctx.font = "600 13px system-ui, sans-serif";
+          const ly = Math.max(0, by - 18);
+          const lx = Math.max(0, bx);
+          ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+          ctx.fillRect(lx, ly, ctx.measureText(text).width + 10, 18);
+          ctx.fillStyle = "#7CFC00";
+          ctx.fillText(text, lx + 5, ly + 13);
+        }
+
+        if (track.path && track.path.length > 1) {
+          ctx.beginPath();
+          track.path.forEach(([px, py], i) => {
+            const sx = px * scaleX;
+            const sy = py * scaleY;
+            if (i === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+          });
+          ctx.stroke();
+        }
+
+        ctx.fillStyle = "#7CFC00";
+        if (!track.bbox) {
+          ctx.fillText(`${track.id} ${track.label || ""}`, x + 10, y - 10);
+        }
+      }
+    }
+
+    async function sendFrame() {
+      if (busy || video.readyState < 2) return;
+      busy = true;
+      try {
+        const maxW = 640;
+        const scale = Math.min(1, maxW / video.videoWidth);
+        sendCanvas.width = Math.round(video.videoWidth * scale);
+        sendCanvas.height = Math.round(video.videoHeight * scale);
+        sendWidth = sendCanvas.width;
+        sendHeight = sendCanvas.height;
+        sendCtx.drawImage(video, 0, 0, sendCanvas.width, sendCanvas.height);
+
+        const blob = await new Promise((resolve) =>
+          sendCanvas.toBlob(resolve, "image/jpeg", 0.7)
+        );
+        if (!blob) return;
+
+        const form = new FormData();
+        form.append("file", blob, "frame.jpg");
+        const res = await fetch("/api/frame", { method: "POST", body: form });
+        const data = await res.json();
+        lastTracks = data.tracks || [];
+        status.textContent = `tracks: ${lastTracks.length}`;
+      } catch (err) {
+        status.textContent = `error: ${err}`;
+      } finally {
+        busy = false;
+      }
+    }
+
+    function loop() {
+      drawTracks(lastTracks);
+      sendFrame();
+      requestAnimationFrame(loop);
+    }
+
+    start().catch((err) => {
+      status.textContent = `Camera failed: ${err}. Use HTTPS or localhost.`;
+    });
+  </script>
+</body>
+</html>

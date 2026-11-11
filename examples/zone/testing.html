@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>TraceKit zone tester</title>
+<style>
+  :root { color-scheme: dark; font-family: "Segoe UI", system-ui, sans-serif; }
+  body { margin: 0; background: #111; color: #eee; display: flex; gap: .8rem; padding: .8rem; height: 100vh; box-sizing: border-box; }
+
+  .col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: .5rem; overflow-y: auto; }
+  .col h3 { margin: 0; font-size: .8rem; text-transform: uppercase; opacity: .6; text-align: center; }
+
+  .cmd { flex: 0 0 320px; overflow-y: auto; display: flex; flex-direction: column; gap: .6rem; }
+
+  .panel { background: #191919; border: 1px solid #2a2a2a; border-radius: 8px; padding: .6rem; }
+  .panel h2 { font-size: .75rem; margin: 0 0 .45rem; text-transform: uppercase; opacity: .6; }
+
+  .row { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; justify-content: center; }
+  label.field { display: flex; flex-direction: column; gap: .15rem; font-size: .7rem; opacity: .7; }
+
+  button, input[type=number], input[type=text] {
+    background: #222; color: #eee; border: 1px solid #444;
+    border-radius: 6px; padding: .35rem .6rem; font-size: .8rem;
+  }
+  button { cursor: pointer; width: 100%; }
+  .row button { width: auto; }
+  button:hover { background: #333; }
+  button:disabled { opacity: .4; cursor: default; }
+  #go { background: #1d3320; border-color: #2f5a34; font-weight: 600; }
+
+  .stage { position: relative; width: 100%; max-height: 60vh; }
+  .stage video, .stage canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain;
+  }
+  canvas { cursor: crosshair; }
+  #out { width: 100%; max-height: 60vh; object-fit: contain; }
+
+  #zones { font-size: .78rem; text-align: center; }
+  #zones span.dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 8px; }
+  #status { opacity: .65; font-size: .78rem; text-align: center; }
+  .bigcount { font-size: 1.6rem; font-weight: 700; color: #7CFC00; text-align: center; }
+  .kv { display: flex; justify-content: space-between; font-size: .78rem; opacity: .85; padding: .12rem 0; }
+</style>
+</head>
+<body>
+
+<!-- ============ COL 1: INPUT ============ -->
+<div class="col">
+  <h3>Input · draw zones</h3>
+  <div class="stage" id="stage" style="display:none">
+    <video id="vid" controls muted></video>
+    <canvas id="cv"></canvas>
+  </div>
+  <div id="zones"><span style="opacity:.5">no video loaded</span></div>
+  <div class="row">
+    <button id="undo" disabled>Undo point</button>
+    <button id="finish" disabled>Finish zone</button>
+    <button id="clear" disabled>Clear zones</button>
+  </div>
+</div>
+
+<!-- ============ COL 2: OUTPUT ============ -->
+<div class="col">
+  <h3>Output · counts + annotated video</h3>
+  <div class="panel">
+    <div id="counts" style="opacity:.5">no run yet</div>
+  </div>
+  <video id="out" controls muted></video>
+  <div id="status">Pick a video on the right to begin.</div>
+</div>
+
+<!-- ============ COL 3: COMMAND CENTER ============ -->
+<div class="cmd">
+  <h3 style="font-size:1rem">⌘ Command Center</h3>
+
+  <div class="panel">
+    <h2>1 · Source</h2>
+    <input type="file" id="file" accept="video/*" style="width:100%"/>
+  </div>
+
+  <div class="panel">
+    <h2>2 · Zones</h2>
+    <div id="zoneList"><span style="opacity:.5">none yet</span></div>
+  </div>
+
+  <div class="panel">
+    <h2>3 · Settings</h2>
+    <div class="row" style="justify-content:flex-start; margin-bottom:.4rem">
+      <label class="field">labels <input type="text" id="labels" value="car" size="7"/></label>
+      <label class="field">conf <input type="number" id="conf" value="0.4" step="0.05" min="0" max="1" style="width:4rem"/></label>
+      <label class="field">min_cov <input type="number" id="cov" value="0.5" step="0.05" min="0" max="1" style="width:4rem"/></label>
+      <label class="field">imgsz <input type="number" id="imgsz" value="640" step="160" min="160" max="1280" style="width:4.5rem"/></label>
+      <label class="field">model
+        <select id="model">
+          <option value="yolov8n">yolov8n (fast)</option>
+          <option value="yolov8s">yolov8s (accurate)</option>
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>4 · Run</h2>
+    <button id="go" disabled>▶ Process video</button>
+  </div>
+
+  <div class="panel">
+    <h2>Summary</h2>
+    <div class="kv"><span>labels</span><span id="sLabels">car</span></div>
+    <div class="kv"><span>confidence</span><span id="sConf">0.4</span></div>
+    <div class="kv"><span>min_coverage</span><span id="sCov">0.5</span></div>
+    <div class="kv"><span>imgsz</span><span id="sImgsz">640</span></div>
+    <div class="kv"><span>model</span><span id="sModel">yolov8n</span></div>
+    <div class="kv"><span>zones</span><span id="sZones">0</span></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = ["#7CFC00", "#FF5555", "#55AAFF", "#FFAA00", "#DD66FF", "#00DDCC"];
+let zones = [], current = [], busy = false;
+
+$("file").onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  zones = []; current = []; showZones();
+  $("vid").src = URL.createObjectURL(f);
+  $("stage").style.display = "block";
+  $("vid").onloadedmetadata = () => {
+    $("stage").style.aspectRatio = `${$("vid").videoWidth} / ${$("vid").videoHeight}`;
+    $("cv").width = $("vid").videoWidth;
+    $("cv").height = $("vid").videoHeight;
+    $("status").textContent = "Click on the video to place zone points.";
+    ["undo", "finish", "clear", "go"].forEach(b => $(b).disabled = false);
+  };
+};
+
+function scale(e) {
+  // Map click → native video coords, accounting for object-fit letterboxing.
+  const r = $("cv").getBoundingClientRect();
+  const va = $("cv").width / $("cv").height;   // native aspect
+  const ra = r.width / r.height;               // displayed box aspect
+  let cw, ch;
+  if (ra > va) { ch = r.height; cw = ch * va; }  // bars left/right
+  else         { cw = r.width; ch = cw / va; }  // bars top/bottom
+  const cx = r.left + (r.width - cw) / 2;
+  const cy = r.top + (r.height - ch) / 2;
+  const x = (e.clientX - cx) / cw * $("cv").width;
+  const y = (e.clientY - cy) / ch * $("cv").height;
+  return [Math.max(0, Math.min($("cv").width, Math.round(x))),
+          Math.max(0, Math.min($("cv").height, Math.round(y)))];
+}
+
+$("cv").onclick = e => { if (!busy) { current.push(scale(e)); draw(); } };
+$("undo").onclick = () => { current.pop(); draw(); };
+$("finish").onclick = () => {
+  if (current.length < 3) { $("status").textContent = "A zone needs ≥ 3 points."; return; }
+  zones.push({ name: `zone${zones.length + 1}`, points: current.map(p => p.slice()) });
+  current = []; showZones(); draw();
+};
+$("clear").onclick = () => { zones = []; current = []; showZones(); draw(); };
+
+function showZones() {
+  $("zones").innerHTML = zones.map((z, i) =>
+    `<span class="dot" style="background:${COLORS[i % COLORS.length]}"></span>${z.name} (${z.points.length} pts)`
+  ).join(" ") || "<span style='opacity:.5'>no zones yet — click on the video</span>";
+  $("zoneList").innerHTML = zones.map((z, i) =>
+    `<div class="kv"><span><span class="dot" style="background:${COLORS[i % COLORS.length]}"></span>${z.name}</span><span>${z.points.length} pts</span></div>`
+  ).join("") || "<span style='opacity:.5'>none yet</span>";
+  $("sZones").textContent = zones.length;
+  syncSettings();
+}
+
+function syncSettings() {
+  $("sLabels").textContent = $("labels").value || "—";
+  $("sConf").textContent = $("conf").value;
+  $("sCov").textContent = $("cov").value;
+  $("sImgsz").textContent = $("imgsz").value;
+  $("sModel").textContent = $("model").value;
+}
+["labels", "conf", "cov", "imgsz", "model"].forEach(id => $(id).oninput = syncSettings);
+
+function draw() {
+  const c = $("cv"), ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, c.width, c.height);
+  const poly = (pts, color) => {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    if (pts.length > 2) ctx.closePath();
+    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = color;
+    pts.forEach(([x, y]) => ctx.fillRect(x - 3, y - 3, 6, 6));
+  };
+  zones.forEach((z, i) => {
+    poly(z.points, COLORS[i % COLORS.length]);
+    ctx.fillStyle = COLORS[i % COLORS.length];
+    ctx.font = "20px system-ui";
+    ctx.fillText(z.name, z.points[0][0], z.points[0][1] - 8);
+  });
+  if (current.length) poly(current, "#FFFFFF");
+  $("finish").disabled = current.length < 3 || busy;
+  $("undo").disabled = !current.length || busy;
+}
+
+$("go").onclick = async () => {
+  if (busy || !zones.length) { $("status").textContent = "Draw at least one zone first."; return; }
+  busy = true; $("go").disabled = true; draw();
+  $("status").textContent = "Processing… (YOLO on CPU, be patient)";
+  const cov = parseFloat($("cov").value);
+  const fd = new FormData();
+  fd.append("file", $("file").files[0]);
+  fd.append("zones", JSON.stringify(zones.map(z => ({ ...z, min_coverage: cov }))));
+  fd.append("labels", $("labels").value);
+  fd.append("confidence", $("conf").value);
+  fd.append("min_coverage", cov);
+  fd.append("imgsz", $("imgsz").value);
+  fd.append("model", $("model").value);
+  try {
+    const res = await fetch("/api/analyze", { method: "POST", body: fd });
+    if (!res.ok) throw new Error(await res.text());
+    const counts = JSON.parse(res.headers.get("X-Zone-Counts") || "{}");
+    $("counts").textContent =
+      Object.entries(counts).map(([k, s]) =>
+        `${k}: in ${s.in}, out ${s.out}, now ${s.current}`).join("  |  ") || "—";
+    $("out").src = URL.createObjectURL(await res.blob());
+    $("status").textContent = "Done.";
+  } catch (err) {
+    $("status").textContent = "error: " + err;
+  } finally {
+    busy = false; $("go").disabled = false; draw();
+  }
+};
+</script>
+</body>
+</html>
