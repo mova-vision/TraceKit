@@ -43,3 +43,4 @@ samples/
 models/
 *.pt
 *.onnx
+docs/superpowers

@@ -157,12 +157,15 @@ Until then: examples draw; core returns data.
 ## Current v1 scope
 
 - Package layout under `src/tracekit/`
-- Public: `Media`, `Detector`, `Detection`, `Track`, `YOLOAdapter`, `Zone`,
-  `Line`, `LifecycleWatcher` (+ watchers in `tracekit.spatial`)
+- Public: `Media`, `Detector`, `Detection`, `Track`, `YOLOAdapter`,
+  `Scope`, `Zone`, `Line`, `LifecycleWatcher`
+  (+ watchers in `tracekit.spatial`)
 - Centroid tracker with path accumulation
 - Event producers: `update`, `enter`/`exit`, `dwell`/`leave`, `cross`,
   `proximity`, `appear`/`lost`
 - OpenCV file reader adapter
+- `Scope`: crop-to-zone inference wrapper — model sees only the
+  region, detections remapped to full-frame coordinates
 - Examples: `examples/basic_tracking.py`, `examples/traffic_zone.py`,
   `examples/events_demo.py`, `examples/browser/`
 - Unit tests with fake detectors (no YOLO required)

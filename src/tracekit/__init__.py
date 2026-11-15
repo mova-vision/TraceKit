@@ -1,5 +1,6 @@
 """TraceKit — infrastructure between your vision model and application logic."""
 
+from tracekit.adapters.scope import Scope
 from tracekit.adapters.yolo import YOLOAdapter
 from tracekit.core.detection import Detection
 from tracekit.core.detector import Detector
@@ -18,6 +19,7 @@ __all__ = [
     "LifecycleWatcher",
     "Line",
     "Media",
+    "Scope",
     "Track",
     "YOLOAdapter",
     "Zone",
