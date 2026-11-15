@@ -100,9 +100,24 @@ Optional convenience fields in v1: `label`, `confidence`, `bbox`, `detection`.
 ## Event architecture
 
 String-named emitter. Handlers receive a single `Event` object
-(`event.tracks` / `event.track`, `event.frame`, `event.zone`, `event.coverage`).
+(`event.tracks` / `event.track`, `event.other`, `event.frame`, `event.zone`,
+`event.line`, `event.coverage`, `event.direction`, `event.distance`).
 
-Shipped: `"update"`, plus zone producers `"enter"` / `"exit"` (`ZoneWatcher`).
+Shipped producers (each validates its event names in `on()`):
+
+| Producer (module) | Events | Payload highlights |
+|---|---|---|
+| `ZoneWatcher` (`spatial/zone.py`) | `enter` / `exit` | `track`, `zone`, `coverage` |
+| `DwellWatcher` (`spatial/zone.py`) | `dwell` / `leave` | `zone` + `min_frames` stay gate |
+| `LineWatcher` (`spatial/line.py`) | `cross` | `line`, `direction` (+1/-1 side moved onto) |
+| `ProximityWatcher` (`spatial/proximity.py`) | `proximity` | `track` + `other` pair, `distance`, transition-based |
+| `LifecycleWatcher` (`core/lifecycle.py`) | `appear` / `lost` | track first seen / dropped by tracker |
+
+Fluent conveniences on `TrackedObjects`: `on_enter` / `on_exit` / `on_dwell` /
+`on_cross` / `on_proximity` / `on_appear` / `on_lost` — each find-or-creates
+one producer per geometry (see `_producer`). Crossings require observed
+movement of a *tracked* id; a brand-new track appearing beyond a line is not
+a cross. Proximity is O(n²) pairs; everything else is O(1) per track.
 
 Users can add their **own events** without core changes: subclass
 `EventProducer` (implement `update(tracks)`, fire with `self.emit(...)`),
@@ -142,18 +157,21 @@ Until then: examples draw; core returns data.
 ## Current v1 scope
 
 - Package layout under `src/tracekit/`
-- Public: `Media`, `Detector`, `Detection`, `Track`, `YOLOAdapter`
+- Public: `Media`, `Detector`, `Detection`, `Track`, `YOLOAdapter`, `Zone`,
+  `Line`, `LifecycleWatcher` (+ watchers in `tracekit.spatial`)
 - Centroid tracker with path accumulation
-- `"update"` events
+- Event producers: `update`, `enter`/`exit`, `dwell`/`leave`, `cross`,
+  `proximity`, `appear`/`lost`
 - OpenCV file reader adapter
-- Examples: `examples/basic_tracking.py`, `examples/browser/`
+- Examples: `examples/basic_tracking.py`, `examples/traffic_zone.py`,
+  `examples/events_demo.py`, `examples/browser/`
 - Unit tests with fake detectors (no YOLO required)
 
 ## Planned / future capabilities
 
-- enter / exit / cross / collision events
+- collision (bbox overlap) events, speed / stationary events
 - perspective / coordinate mapping
-- zones, occupancy, distances
+- zone occupancy counts
 - additional media backends (webcam, browser-native Media, streams)
 - visualization primitive layer + backends
 - stronger / swappable trackers

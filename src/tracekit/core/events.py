@@ -12,6 +12,7 @@ Handler = Callable[..., Any]
 
 if TYPE_CHECKING:  # pragma: no cover
     from tracekit.core.track import Track
+    from tracekit.spatial.line import Line
     from tracekit.spatial.zone import Zone
 
 
@@ -20,8 +21,13 @@ class Event:
     """Single payload passed to every event handler.
 
     ``update`` events carry ``tracks`` (+ ``frame``).
-    Zone events (``enter`` / ``exit``) carry ``track``, ``zone`` and the
-    fraction of the track's bbox currently inside the zone (``coverage``).
+    Zone events (``enter`` / ``exit`` / ``dwell`` / ``leave``) carry
+    ``track``, ``zone`` and the fraction of the track's bbox currently
+    inside the zone (``coverage``).
+    Line events (``cross``) carry ``track``, ``line`` and the side moved
+    onto (``direction``, ``+1`` / ``-1``).
+    Pair events (``proximity``) carry ``track`` + ``other`` + ``distance``.
+    Lifecycle events (``appear`` / ``lost``) carry ``track``.
     """
 
     name: str
@@ -31,7 +37,12 @@ class Event:
     """Second track involved in pairings (collisions, overtakes, ...)."""
     frame: Any = None
     zone: "Zone | None" = None
+    line: "Line | None" = None
     coverage: float | None = None
+    direction: int | None = None
+    """Side moved onto for ``cross`` events (``+1`` / ``-1``)."""
+    distance: float | None = None
+    """Distance between the pair for ``proximity`` events."""
 
 
 class EventProducer:

@@ -119,3 +119,63 @@ class ZoneWatcher(EventProducer):
             zone=self.zone,
             coverage=self.zone.coverage(track.bbox) if track.bbox else 0.0,
         ))
+
+
+class DwellWatcher(EventProducer):
+    """Event producer: watches how long tracks stay inside one Zone.
+
+    Emits ``dwell`` after a track has been inside for ``min_frames``
+    consecutive frames (fires once per stay), and ``leave`` when a dwelling
+    track exits the zone or disappears. Handlers receive a single
+    :class:`Event`. Convert to seconds in the app — ``fps`` is known there.
+    """
+
+    def __init__(self, zone: Zone, min_frames: int = 30) -> None:
+        if min_frames < 1:
+            raise ValueError("min_frames must be at least 1")
+        super().__init__(key=zone)
+        self.zone = zone
+        self.min_frames = min_frames
+        self._count: dict[int, int] = {}   # track id → consecutive inside frames
+        self._dwelling: set[int] = set()   # track ids that already fired dwell
+        self._last: dict[int, "Track"] = {}
+
+    def on(self, event: str, handler) -> None:
+        if event not in ("dwell", "leave"):
+            raise ValueError(f"DwellWatcher supports 'dwell'/'leave', got {event!r}")
+        super().on(event, handler)
+
+    def update(self, tracks: list["Track"]) -> None:
+        """Evaluate one frame's tracks and fire dwell / leave events."""
+        present: set[int] = set()
+        for track in tracks:
+            present.add(track.id)
+            self._last[track.id] = track
+            if self.zone.is_inside(track.bbox, track.position):
+                count = self._count.get(track.id, 0) + 1
+                self._count[track.id] = count
+                if count >= self.min_frames and track.id not in self._dwelling:
+                    self._dwelling.add(track.id)
+                    self._fire("dwell", track)
+            else:
+                self._count.pop(track.id, None)
+                if track.id in self._dwelling:
+                    self._dwelling.discard(track.id)
+                    self._fire("leave", track)
+
+        # Dwelling tracks that vanished count as leaving.
+        gone = [tid for tid in self._count if tid not in present]
+        for tid in gone:
+            self._count.pop(tid, None)
+            if tid in self._dwelling:
+                self._dwelling.discard(tid)
+                self._fire("leave", self._last[tid])
+            self._last.pop(tid, None)
+
+    def _fire(self, event: str, track: "Track") -> None:
+        self.emit(event, Event(
+            name=event,
+            track=track,
+            zone=self.zone,
+            coverage=self.zone.coverage(track.bbox) if track.bbox else 0.0,
+        ))

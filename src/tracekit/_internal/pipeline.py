@@ -8,15 +8,18 @@ from collections.abc import Callable
 from tracekit.core.detector import Detector
 from tracekit.core.detection import Detection
 from tracekit.core.events import EventEmitter, Event, EventProducer, Handler
+from tracekit.core.lifecycle import LifecycleWatcher
 from tracekit.core.track import Track
-from tracekit.spatial.zone import Zone, ZoneWatcher
+from tracekit.spatial.line import Line, LineWatcher
+from tracekit.spatial.proximity import ProximityWatcher
+from tracekit.spatial.zone import DwellWatcher, Zone, ZoneWatcher
 from tracekit.tracking.tracker import CentroidTracker
 
 
 class TrackedObjects(EventEmitter):
     """Fluent handle returned by ``Media.detect(...).track()``.
 
-    Events stay generic: each kind (zone, future line/collision/loss) is a
+    Events stay generic: each kind (zone, line, collision, loss, ...) is a
     *producer* object registered once in ``_producers``. New event types add
     a producer class plus one ``on_*`` method — no core rewrites.
     """
@@ -46,6 +49,43 @@ class TrackedObjects(EventEmitter):
     def on_exit(self, zone: Zone, handler: Handler) -> TrackedObjects:
         """Fire ``handler`` when a track leaves ``zone`` (or disappears)."""
         self._producer(("zone", id(zone)), lambda: ZoneWatcher(zone)).on("exit", handler)
+        return self
+
+    def on_cross(self, line: Line, handler: Handler) -> TrackedObjects:
+        """Fire ``handler`` when a track crosses ``line`` (either direction).
+
+        Filter inside the handler on ``event.direction`` for a one-way gate.
+        """
+        self._producer(("line", id(line)), lambda: LineWatcher(line)).on("cross", handler)
+        return self
+
+    def on_dwell(self, zone: Zone, handler: Handler, *,
+                 min_frames: int = 30) -> TrackedObjects:
+        """Fire ``handler`` after a track stays ``min_frames`` frames in
+        ``zone``; ``on_dwell(zone, h).on("leave", h2)`` catches it leaving."""
+        key = ("dwell", (id(zone), min_frames))
+        self._producer(key, lambda: DwellWatcher(zone, min_frames)).on("dwell", handler)
+        return self
+
+    def on_appear(self, handler: Handler) -> TrackedObjects:
+        """Fire ``handler`` the first time a track id shows up."""
+        self._producer(("lifecycle", None), LifecycleWatcher).on("appear", handler)
+        return self
+
+    def on_lost(self, handler: Handler) -> TrackedObjects:
+        """Fire ``handler`` when the tracker drops a track id."""
+        self._producer(("lifecycle", None), LifecycleWatcher).on("lost", handler)
+        return self
+
+    def on_proximity(self, max_distance: float, handler: Handler) -> TrackedObjects:
+        """Fire ``handler`` when two tracks come within ``max_distance``.
+
+        Fires on *becoming* close; the pair distance is on ``event.distance``.
+        """
+        self._producer(
+            ("proximity", max_distance),
+            lambda: ProximityWatcher(max_distance),
+        ).on("proximity", handler)
         return self
 
     def _producer(self, key: tuple[str, Any], factory: Callable[[], Any]) -> Any:

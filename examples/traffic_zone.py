@@ -18,12 +18,15 @@ from render import VideoSink
 
 from tracekit import Media, YOLOAdapter, Zone
 
-source = sys.argv[1] if len(sys.argv) > 1 else "traffic.mp4"
+source = sys.argv[1] if len(sys.argv) > 1 else "./samples/car_highway.mp4"
 
 # -- configuration ------------------------------------------------------------
+# Single gate over the main carriageway, picked with zone_picker.py on
+# samples/car_highway.mp4. Counts cars present in the gate (+1 enter,
+# -1 exit).
 ZONE1 = Zone(
-    name="zone1",
-    points=[(333, 145), (468, 144), (534, 231), (322, 237), (331, 146)],
+    name="gate",
+    points=[(214, 124), (443, 123), (568, 264), (104, 267)],
     min_coverage=0.5,
 )
 ZONE2 = Zone(
@@ -61,7 +64,8 @@ for zone in (ZONE1, ZONE2):
 
 # Annotated output video: zone outlines + live counters
 sink = VideoSink(source=source, zones=[ZONE1, ZONE2],
-                 overlay=lambda: f"z1: {counts['zone1']}  z2: {counts['zone2']}")
+                 overlay=lambda: (f"{ZONE1.name}: {counts[ZONE1.name]}  "
+                                  f"{ZONE2.name}: {counts[ZONE2.name]}"))
 cars.on_update(lambda e: sink.write(e.tracks, e.frame))
 
 video.run()

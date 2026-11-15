@@ -4,8 +4,10 @@ from tracekit.adapters.yolo import YOLOAdapter
 from tracekit.core.detection import Detection
 from tracekit.core.detector import Detector
 from tracekit.core.events import Event, EventProducer
+from tracekit.core.lifecycle import LifecycleWatcher
 from tracekit.core.media import Media
 from tracekit.core.track import Track
+from tracekit.spatial.line import Line
 from tracekit.spatial.zone import Zone
 
 __all__ = [
@@ -13,6 +15,8 @@ __all__ = [
     "Detector",
     "Event",
     "EventProducer",
+    "LifecycleWatcher",
+    "Line",
     "Media",
     "Track",
     "YOLOAdapter",
