@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from tracekit.core.events import Event, EventProducer
+from tracekit.core.events import Event, EventProducer, Handler
 
 if TYPE_CHECKING:  # pragma: no cover
     from tracekit.core.track import Track
@@ -92,7 +92,7 @@ class LineWatcher(EventProducer):
         self._side: dict[int, int] = {}  # track id → last known nonzero side
         self._pos: dict[int, tuple[float, float]] = {}  # id → position at that side
 
-    def on(self, event: str, handler) -> None:
+    def on(self, event: str, handler: Handler) -> None:
         if event != "cross":
             raise ValueError(f"LineWatcher supports 'cross', got {event!r}")
         super().on(event, handler)

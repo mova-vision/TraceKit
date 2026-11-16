@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from tracekit.core.events import Event, EventProducer
+from tracekit.core.events import Event, EventProducer, Handler
 
 if TYPE_CHECKING:  # pragma: no cover
     from tracekit.core.track import Track
@@ -29,7 +29,7 @@ class ProximityWatcher(EventProducer):
         self.max_distance = max_distance
         self._near: set[tuple[int, int]] = set()  # sorted (id_a, id_b) pairs
 
-    def on(self, event: str, handler) -> None:
+    def on(self, event: str, handler: Handler) -> None:
         if event != "proximity":
             raise ValueError(f"ProximityWatcher supports 'proximity', got {event!r}")
         super().on(event, handler)

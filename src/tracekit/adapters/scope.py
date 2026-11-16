@@ -54,15 +54,16 @@ class Scope(Detector):
         offset_dets = self._inner.detect(crop)
 
         shape = getattr(frame, "shape", None)
-        h, w = (shape[0], shape[1]) if shape is not None else (None, None)
+        h: float | None = float(shape[0]) if shape is not None else None
+        w: float | None = float(shape[1]) if shape is not None else None
 
         out: list[Detection] = []
         for det in offset_dets:
             bx1, by1, bx2, by2 = det.bbox
             bx1, by1, bx2, by2 = bx1 + x0, by1 + y0, bx2 + x0, by2 + y0
-            if h is not None:  # clip to the real frame edges
+            if h is not None and w is not None:  # clip to real frame edges
                 bx1, by1 = max(0.0, bx1), max(0.0, by1)
-                bx2, by2 = min(float(w), bx2), min(float(h), by2)
+                bx2, by2 = min(w, bx2), min(h, by2)
             if bx2 <= bx1 or by2 <= by1:
                 continue
             center = ((bx1 + bx2) / 2.0, (by1 + by2) / 2.0)

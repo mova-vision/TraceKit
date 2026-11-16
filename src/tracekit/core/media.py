@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tracekit._internal.pipeline import DetectionStage, Pipeline
 from tracekit.core.detection import Detection
+from tracekit.core.detector import Detector
+
+if TYPE_CHECKING:  # pragma: no cover
+    from tracekit.core.track import Track
 
 
 class Media:
@@ -38,7 +42,7 @@ class Media:
 
     def detect(
         self,
-        detector: Any,
+        detector: Detector,
         *,
         confidence: float | None = None,
         labels: list[str] | None = None,
@@ -113,10 +117,10 @@ class Media:
             return results[0]
         return results
 
-    def _feed(self, frame: Any) -> list[list]:
+    def _feed(self, frame: Any) -> list[list[Track]]:
         """Run each unique detector once, then ingest into every pipeline."""
         detections: dict[int, list[Detection]] = {}
-        results: list[list] = []
+        results: list[list[Track]] = []
         for pipeline in self._pipelines:
             key = id(pipeline._detector)
             if key not in detections:

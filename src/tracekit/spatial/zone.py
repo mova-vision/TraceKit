@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from tracekit.core.events import Event, EventProducer
+from tracekit.core.events import Event, EventProducer, Handler
 
 if TYPE_CHECKING:  # pragma: no cover
     from tracekit.core.track import Track
@@ -86,7 +86,7 @@ class ZoneWatcher(EventProducer):
         self._inside: dict[int, bool] = {}
         self._last: dict[int, "Track"] = {}
 
-    def on(self, event: str, handler) -> None:
+    def on(self, event: str, handler: Handler) -> None:
         if event not in ("enter", "exit"):
             raise ValueError(f"ZoneWatcher supports 'enter'/'exit', got {event!r}")
         super().on(event, handler)
@@ -140,7 +140,7 @@ class DwellWatcher(EventProducer):
         self._dwelling: set[int] = set()   # track ids that already fired dwell
         self._last: dict[int, "Track"] = {}
 
-    def on(self, event: str, handler) -> None:
+    def on(self, event: str, handler: Handler) -> None:
         if event not in ("dwell", "leave"):
             raise ValueError(f"DwellWatcher supports 'dwell'/'leave', got {event!r}")
         super().on(event, handler)

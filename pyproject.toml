@@ -19,7 +19,7 @@ dependencies = [
 opencv = ["opencv-python>=4.8"]
 yolo = ["ultralytics>=8.0"]
 browser = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "python-multipart>=0.0.9", "opencv-python>=4.8"]
-dev = ["pytest>=7.4"]
+dev = ["pytest>=7.4", "mypy>=1.8"]
 all = [
     "opencv-python>=4.8",
     "ultralytics>=8.0",
@@ -34,6 +34,21 @@ Homepage = "https://github.com/tracekit/tracekit"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+tracekit = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.10"
+mypy_path = "src"
+files = ["src/tracekit"]
+strict = true
+# Optional deps (cv2, ultralytics) have no stubs — those modules stay lenient.
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tracekit.adapters.yolo", "tracekit.adapters.opencv_media"]
+ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

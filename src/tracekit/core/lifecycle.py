@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tracekit.core.events import Event, EventProducer
+from tracekit.core.events import Event, EventProducer, Handler
 
 if TYPE_CHECKING:  # pragma: no cover
     from tracekit.core.track import Track
@@ -25,7 +25,7 @@ class LifecycleWatcher(EventProducer):
         self._known: set[int] = set()
         self._last: dict[int, "Track"] = {}
 
-    def on(self, event: str, handler) -> None:
+    def on(self, event: str, handler: Handler) -> None:
         if event not in ("appear", "lost"):
             raise ValueError(f"LifecycleWatcher supports 'appear'/'lost', got {event!r}")
         super().on(event, handler)

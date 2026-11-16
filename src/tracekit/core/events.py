@@ -5,15 +5,21 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
-
-
-Handler = Callable[..., Any]
+from typing import TYPE_CHECKING, TypeVar
 
 if TYPE_CHECKING:  # pragma: no cover
+    import numpy as np
+
     from tracekit.core.track import Track
     from tracekit.spatial.line import Line
     from tracekit.spatial.zone import Zone
+
+_E = TypeVar("_E", bound="EventEmitter")
+
+#: Signature every event handler must accept: a single :class:`Event`.
+#: Annotating handlers with this means IDEs/type checkers know exactly
+#: what ``event`` is inside the handler body.
+Handler = Callable[["Event"], None]
 
 
 @dataclass(slots=True)
@@ -35,7 +41,8 @@ class Event:
     track: "Track | None" = None
     other: "Track | None" = None
     """Second track involved in pairings (collisions, overtakes, ...)."""
-    frame: Any = None
+    frame: "np.ndarray | None" = None
+    """BGR frame (numpy HxWx3) for ``update`` events, when a frame source is used."""
     zone: "Zone | None" = None
     line: "Line | None" = None
     coverage: float | None = None
@@ -54,7 +61,7 @@ class EventProducer:
     Register with ``objects.add_producer(...)``.
     """
 
-    def __init__(self, key: Any = None) -> None:
+    def __init__(self, key: object = None) -> None:
         self.key = key
         self._handlers: dict[str, list[Handler]] = defaultdict(list)
 
@@ -81,8 +88,10 @@ class EventEmitter:
     def __init__(self) -> None:
         self._handlers: dict[str, list[Handler]] = defaultdict(list)
 
-    def on(self, event: str, handler: Handler) -> None:
+    def on(self: _E, event: str, handler: Handler) -> _E:
+        """Register ``handler`` for ``event``; returns self for chaining."""
         self._handlers[event].append(handler)
+        return self
 
     def off(self, event: str, handler: Handler | None = None) -> None:
         if handler is None:
@@ -93,6 +102,7 @@ class EventEmitter:
             return
         self._handlers[event] = [h for h in handlers if h is not handler]
 
-    def emit(self, event: str, *args: Any, **kwargs: Any) -> None:
+    def emit(self, event: str, payload: Event) -> None:
+        """Dispatch ``payload`` to every handler registered for ``event``."""
         for handler in list(self._handlers.get(event, [])):
-            handler(*args, **kwargs)
+            handler(payload)

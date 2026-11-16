@@ -14,6 +14,7 @@ from tracekit.spatial.line import Line, LineWatcher
 from tracekit.spatial.proximity import ProximityWatcher
 from tracekit.spatial.zone import DwellWatcher, Zone, ZoneWatcher
 from tracekit.tracking.tracker import CentroidTracker
+from tracekit.tracking.protocol import Tracker
 
 
 class TrackedObjects(EventEmitter):
@@ -27,7 +28,7 @@ class TrackedObjects(EventEmitter):
     def __init__(self) -> None:
         super().__init__()
         self._tracks: list[Track] = []
-        self._producers: dict[tuple[str, Any], Any] = {}
+        self._producers: dict[tuple[str, object], EventProducer] = {}
 
     @property
     def tracks(self) -> list[Track]:
@@ -88,13 +89,15 @@ class TrackedObjects(EventEmitter):
         ).on("proximity", handler)
         return self
 
-    def _producer(self, key: tuple[str, Any], factory: Callable[[], Any]) -> Any:
+    def _producer(
+        self, key: tuple[str, object], factory: Callable[[], EventProducer],
+    ) -> EventProducer:
         """Find-or-create the producer for ``key`` — one per geometry."""
         if key not in self._producers:
             self._producers[key] = factory()
         return self._producers[key]
 
-    def add_producer(self, producer: Any) -> TrackedObjects:
+    def add_producer(self, producer: EventProducer) -> TrackedObjects:
         """Register a custom :class:`EventProducer` (user-defined events).
 
         The producer's ``update(tracks)`` runs every frame; handlers are
@@ -118,7 +121,7 @@ class Pipeline:
         *,
         confidence: float | None = None,
         labels: list[str] | None = None,
-        tracker: CentroidTracker | None = None,
+        tracker: Tracker | None = None,
     ) -> None:
         self._detector = detector
         self._confidence = confidence
@@ -164,7 +167,7 @@ class DetectionStage:
         self._confidence = confidence
         self._labels = labels
 
-    def track(self, tracker: CentroidTracker | None = None) -> TrackedObjects:
+    def track(self, tracker: Tracker | None = None) -> TrackedObjects:
         pipeline = Pipeline(
             detector=self._detector,
             confidence=self._confidence,
