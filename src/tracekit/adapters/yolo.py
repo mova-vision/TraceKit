@@ -9,25 +9,36 @@ from tracekit.core.detector import Detector
 
 
 class YOLOAdapter(Detector):
-    """Adapter only — YOLO is not part of TraceKit's architecture."""
+    """Adapter only — YOLO is not part of TraceKit's architecture.
+
+    ``weights`` loads through the installed ``ultralytics`` package (whatever
+    version the user has). For a fork/re-implementation under a different
+    import name, pass a pre-built ``model`` instead — anything exposing
+    ``predict(..., imgsz=, device=, verbose=)`` returning objects with
+    ``.boxes`` (``.xyxy`` / ``.conf`` / ``.cls``) and ``.names``.
+    """
 
     def __init__(
         self,
         weights: str = "yolov8n.pt",
         *,
+        model: Any = None,
         device: str | None = None,
         imgsz: int = 640,
         verbose: bool = False,
     ) -> None:
-        try:
-            from ultralytics import YOLO
-        except ImportError as exc:  # pragma: no cover
-            raise ImportError(
-                "ultralytics is required for YOLOAdapter. "
-                "Install with: pip install tracekit[yolo]"
-            ) from exc
+        if model is None:
+            try:
+                from ultralytics import YOLO
+            except ImportError as exc:  # pragma: no cover
+                raise ImportError(
+                    "ultralytics is required for YOLOAdapter. "
+                    "Install with: pip install tracekit[yolo], or pass "
+                    "model=<your loaded model object> to skip the import."
+                ) from exc
+            model = YOLO(weights)
 
-        self._model = YOLO(weights)
+        self._model = model
         self._device = device
         self._imgsz = imgsz
         self._verbose = verbose

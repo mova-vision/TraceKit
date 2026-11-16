@@ -10,14 +10,20 @@ from tracekit.core.media import Media
 from tracekit.core.track import Track
 from tracekit.spatial.line import Line
 from tracekit.spatial.zone import Zone
+from tracekit.tracking.byte_tracker import ByteTracker
+from tracekit.tracking.byte_tracker import ByteTrackerConfig
+from tracekit.tracking.eval import IdSwitchEvaluator
 from tracekit.tracking.protocol import Tracker
 
 __all__ = [
+    "ByteTracker",
+    "ByteTrackerConfig",
     "Detection",
     "Detector",
     "Event",
     "EventProducer",
     "Handler",
+    "IdSwitchEvaluator",
     "LifecycleWatcher",
     "Line",
     "Media",

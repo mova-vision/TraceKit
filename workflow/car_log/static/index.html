@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>TraceKit car log</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #14181d; color: #dde3ea; display: flex; }
+  #left { flex: 1; padding: 16px; }
+  #side { width: 260px; background: #1b2129; padding: 12px; overflow-y: auto; height: 100vh; }
+  #side h2 { font-size: 14px; margin: 4px 0 10px; color: #9fb0c3; }
+  .car { background: #232b36; border-radius: 8px; margin-bottom: 10px; padding: 8px; }
+  .car img { width: 100%; border-radius: 4px; display: block; }
+  .car .meta { font-size: 12px; color: #8fa2b8; margin-top: 4px; }
+  .car .id { color: #6fd18c; font-weight: 600; }
+  #stage { position: relative; max-width: 960px; }
+  video, #overlay { width: 100%; display: block; }
+  #overlay { position: absolute; inset: 0; cursor: crosshair; }
+  .bar { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
+  button { background: #2b6cb0; color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+  button:disabled { background: #3a4654; }
+  #status { font-size: 13px; color: #9fb0c3; }
+  #zonehint { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,.6); padding: 4px 10px; border-radius: 6px; font-size: 13px; display: none; }
+</style>
+</head>
+<body>
+<div id="left">
+  <div class="bar">
+    <input type="file" id="file" accept="video/*">
+    <button id="camBtn">Use webcam</button>
+    <button id="startBtn" disabled>Start</button>
+    <button id="resetBtn">Reset zone</button>
+    <span id="status">pick a video or webcam →</span>
+  </div>
+  <div id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div id="zonehint">Click 3+ points on the video, then press Start</div>
+    <div id="legend" style="position:absolute; bottom:8px; left:8px; background:rgba(0,0,0,.6); padding:4px 10px; border-radius:6px; font-size:12px; display:none;">
+      <span style="color:#fbbf24">■</span> in zone, capturing sharp frame &nbsp;
+      <span style="color:#4ade80">■</span> logged
+    </div>
+  </div>
+</div>
+<div id="side">
+  <h2>Cars in zone (<span id="count">0</span>)</h2>
+  <div id="cars"></div>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const status = document.getElementById('status');
+const hint = document.getElementById('zonehint');
+const carsDiv = document.getElementById('cars');
+const countEl = document.getElementById('count');
+let zonePoints = [];      // in video's intrinsic pixel coords
+let zoneSent = false;
+let running = false;      // frame loop alive
+let started = false;      // user pressed Start
+let capturedIds = new Set();
+const collected = [];     // order received
+
+// ── source selection ────────────────────────────────────────────────
+document.getElementById('file').onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  video.srcObject = null;
+  video.src = URL.createObjectURL(f);
+  await video.play();
+  start('video');
+};
+document.getElementById('camBtn').onclick = async () => {
+  video.src = null;
+  video.srcObject = await navigator.mediaDevices.getUserMedia({video: true});
+  await video.play();
+  start('webcam');
+};
+document.getElementById('resetBtn').onclick = async () => {
+  zonePoints = []; zoneSent = false; started = false; capturedIds.clear(); collected.length = 0;
+  document.getElementById('startBtn').disabled = true;
+  carsDiv.innerHTML = ''; countEl.textContent = '0';
+  draw(); // clear overlay boxes
+  await fetch('/zone', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '[]'});
+  hint.style.display = 'block';
+  status.textContent = 'zone cleared — draw a new one, then Start';
+};
+
+function start(kind) {
+  sizeOverlay();
+  hint.style.display = zoneSent ? 'none' : 'block';
+  if (!running) { running = true; loop(); }
+  status.textContent = kind + ' loaded — click 3+ points to draw the zone, then press Start';
+}
+
+function sizeOverlay() {
+  overlay.width = video.videoWidth;
+  overlay.height = video.videoHeight;
+}
+
+// ── zone drawing (points in intrinsic video coords) ─────────────────
+overlay.onclick = e => {
+  if (zoneSent) return;
+  const r = overlay.getBoundingClientRect();
+  const x = (e.clientX - r.left) * overlay.width / r.width;
+  const y = (e.clientY - r.top) * overlay.height / r.height;
+  zonePoints.push([Math.round(x), Math.round(y)]);
+  draw();
+  if (zonePoints.length >= 3) document.getElementById('startBtn').disabled = false;
+};
+window.onkeydown = async e => {
+  if (e.key !== 'Enter' || zonePoints.length < 3 || zoneSent) return;
+  zoneSent = true;
+  hint.style.display = 'none';
+  document.getElementById('startBtn').disabled = false;
+  status.textContent = 'zone set — press Start to begin processing';
+};
+document.getElementById('startBtn').onclick = async () => {
+  zoneSent = true;
+  hint.style.display = 'none';
+  await fetch('/zone', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(zonePoints),
+  });
+  started = true;
+  status.textContent = 'processing — amber = in zone (capturing sharp frame), green = logged';
+  document.getElementById('legend').style.display = 'block';
+};
+
+// ── render ──────────────────────────────────────────────────────────
+// Boxes are computed from a frame sent ~100 ms ago (server round-trip),
+// so they trail the live video. Compensate: estimate each car's velocity
+// from its last two boxes and draw it forward by the pipeline lag.
+const LAG_FRAMES = 3;   // round-trip latency in video frames (24 fps ≈ 125 ms)
+const vel = new Map();  // id -> [vx, vy] px/frame, smoothed
+
+function draw(tracks = []) {
+  const ctx = overlay.getContext('2d');
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  if (zonePoints.length > 2) {
+    ctx.beginPath();
+    zonePoints.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(80,220,140,0.12)';
+    ctx.fill();
+    ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2; ctx.stroke();
+  }
+  for (const t of tracks) {
+    if (!t.bbox) continue;
+    let [x1, y1, x2, y2] = t.bbox;
+    const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+    const prev = vel.get(t.id);
+    if (prev) {
+      // smooth velocity (EMA), then push the box forward to "now"
+      prev[0] = prev[0] * 0.6 + (cx - prev[2]) * 0.4;
+      prev[1] = prev[1] * 0.6 + (cy - prev[3]) * 0.4;
+      prev[2] = cx; prev[3] = cy;
+      x1 += prev[0] * LAG_FRAMES; x2 += prev[0] * LAG_FRAMES;
+      y1 += prev[1] * LAG_FRAMES; y2 += prev[1] * LAG_FRAMES;
+    } else {
+      vel.set(t.id, [0, 0, cx, cy]);
+    }
+    // blue = seen but not inside the zone yet; amber = inside, waiting for
+    // its sharpest frame; green = logged with a snapshot in the sidebar.
+    const color = t.logged ? '#4ade80' : (t.in_zone ? '#fbbf24' : '#60a5fa');
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    ctx.fillStyle = color;
+    ctx.font = '16px monospace';
+    ctx.fillText('car #' + t.id, x1, Math.max(14, y1 - 6));
+  }
+  // forget velocity of ids no longer reported
+  const live = new Set(tracks.map(t => t.id));
+  for (const id of vel.keys()) if (!live.has(id)) vel.delete(id);
+}
+
+function addCar(c) {
+  if (capturedIds.has(c.id)) return;
+  capturedIds.add(c.id);
+  collected.push(c);
+  const div = document.createElement('div');
+  div.className = 'car';
+  div.innerHTML = '<img src="data:image/jpeg;base64,' + c.jpeg + '">' +
+    '<div class="meta"><span class="id">car #' + c.id + '</span> · ' + c.label +
+    ' · snapshot ' + collected.length + '</div>';
+  carsDiv.prepend(div);
+  countEl.textContent = collected.length;
+}
+
+// ── frame loop: send latest frame, draw whatever the server returns ──
+async function loop() {
+  const canvas = document.createElement('canvas');
+  for (;;) {
+    if (!video.videoWidth) { await new Promise(r => setTimeout(r, 200)); continue; }
+    if (canvas.width !== video.videoWidth) sizeOverlay();
+    if (!started || !zoneSent) {           // idle: draw zone only, no processing
+      draw();
+      await new Promise(r => setTimeout(r, 100));
+      continue;
+    }
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.6));
+    try {
+      const res = await fetch('/frame', {method: 'POST', body: blob});
+      const data = await res.json();
+      data.cars.forEach(addCar);
+      draw(data.tracks);
+    } catch { /* server restarting — keep looping */ }
+  }
+}
+</script>
+</body>
+</html>

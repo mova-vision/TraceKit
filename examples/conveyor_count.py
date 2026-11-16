@@ -10,9 +10,8 @@ import cv2
 import numpy as np
 
 from render import VideoSink
-from tracekit import Line, Media, Scope, YOLOAdapter, Zone
+from tracekit import ByteTracker, ByteTrackerConfig, Line, Media, Scope, YOLOAdapter, Zone
 from tracekit.spatial import LineWatcher
-from tracekit.tracking.tracker import CentroidTracker
 
 SRC = "./samples/conveyor_orange.mp4"
 
@@ -28,7 +27,7 @@ LINES = [
     # row3 now crosses the busy top-left lane (the stream under the
     # brushes) — the old line sat over an empty lane, which is why it
     # never counted.
-    Line(a=(260, 350), b=(130, 500), name="row3"),
+    Line(a=(481, 393), b=(672, 340), name="row3"),
 ]
 
 counts = {ln.name: 0 for ln in LINES}
@@ -41,15 +40,23 @@ FLOW = +1
 
 video = Media(SRC)
 apples = video.detect(
-    detector=Scope(YOLOAdapter(weights="models/yolov8m.pt", imgsz=640),
+    detector=Scope(YOLOAdapter(weights="models/yolov8n.pt", imgsz=480),
                    BELT, margin=20),
-    confidence=0.2,   # low: blurry oranges score weak; tracker absorbs misses
+    confidence=0.05,  # n@480 sees less than m@640 — keep the floor very low
     labels=["orange"],
 ).track(
-    # Best measured config on this footage (10/6/2 with max_missed=30, and
-    # 150 px distance merged adjacent oranges): defaults win. Remaining
-    # misses are detection-side (blur), not tracking-side.
-    tracker=CentroidTracker(max_distance=80, max_missed=15),
+    # ByteTrack-level tracker: Kalman velocity prediction + two-stage
+    # Hungarian association. The old CentroidTracker re-issued IDs after
+    # every blur gap (orange re-crossed with a new id → undercount);
+    # ByteTracker keeps the SAME id through short misses and the car
+    # behind never inherits a dead id. Tuned for steady belt flow.
+    tracker=ByteTracker(ByteTrackerConfig(
+        confirm_hits=3, max_age=30,
+        hi_thresh=0.35,        # blurry oranges score low — widen the stage-A pool
+        lo_thresh=0.1,
+        new_track_thresh=0.25,  # was 0.6 (car-tuned): weak orange boxes must be
+                                # allowed to START a track or they never count
+    )),
 )
 
 
