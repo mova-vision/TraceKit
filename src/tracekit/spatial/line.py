@@ -81,9 +81,14 @@ class LineWatcher(EventProducer):
     filter on it for one-way gates).
     """
 
-    def __init__(self, line: Line) -> None:
+    def __init__(self, line: Line, edge_margin: float = 0.0) -> None:
+        """``edge_margin``: fraction of the segment length at each end where
+        crossings are ignored — objects grazing the line's tip don't count."""
+        if not 0.0 <= edge_margin < 0.5:
+            raise ValueError("edge_margin must be in [0.0, 0.5)")
         super().__init__(key=line)
         self.line = line
+        self.edge_margin = edge_margin
         self._side: dict[int, int] = {}  # track id → last known nonzero side
         self._pos: dict[int, tuple[float, float]] = {}  # id → position at that side
 
@@ -101,9 +106,10 @@ class LineWatcher(EventProducer):
             prev = self._side.get(track.id, 0)
             if side != 0 and prev != 0 and side != prev:
                 prev_pos = self._pos.get(track.id)
-                if prev_pos is not None and self.line.crosses(
-                        prev_pos, track.position):
-                    self._fire(track, side)
+                if prev_pos is not None:
+                    t = self.line.crossing_t(prev_pos, track.position)
+                    if t is not None and self.edge_margin <= t <= 1.0 - self.edge_margin:
+                        self._fire(track, side)
             if side != 0:
                 self._side[track.id] = side
                 self._pos[track.id] = track.position
